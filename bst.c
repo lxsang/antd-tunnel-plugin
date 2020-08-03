@@ -23,9 +23,11 @@ bst_node_t* bst_insert(bst_node_t* root, int key, void* data)
         root->left = root->right = NULL;
     }
     else if(key < root->key)
-        root->left = insert(root->left, key, data);
+        root->left = bst_insert(root->left, key, data);
     else if(key > root->key)
-        root->right = insert(root->right, key, data);
+        root->right = bst_insert(root->right, key, data);
+    else
+        root->data = data;
     return root;
 }
 
@@ -54,9 +56,9 @@ bst_node_t* bst_find(bst_node_t* root, int x)
     if(root == NULL)
         return NULL;
     else if(x < root->key)
-        return find(root->left, x);
+        return bst_find(root->left, x);
     else if(x > root->key)
-        return find(root->right, x);
+        return bst_find(root->right, x);
     else
         return root;
 }
@@ -68,15 +70,15 @@ bst_node_t* bst_delete(bst_node_t* root, int x)
     if(root == NULL)
         return NULL;
     else if(x < root->key)
-        root->left = delete(root->left, x);
+        root->left = bst_delete(root->left, x);
     else if(x > root->key)
-        root->right = delete(root->right, x);
+        root->right = bst_delete(root->right, x);
     else if(root->left && root->right)
     {
         temp = bst_find_min(root->right);
         root->key = temp->key;
         root->data = temp->data;
-        root->right = delete(root->right, root->key);
+        root->right = bst_delete(root->right, root->key);
     }
     else
     {

@@ -14,6 +14,6 @@ AM_CPPFLAGS += -W  -Wall -g -std=c99 -fPIC
 
 lib_LTLIBRARIES = tunnel.la
 tunnel_la_LDFLAGS = -module -avoid-version -shared
-tunnel_la_SOURCES =  tunnel.c bst.c
+tunnel_la_SOURCES =  tunnel.c
 
 EXTRA_DIST = README.md

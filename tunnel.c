@@ -12,7 +12,7 @@
 #include <sys/un.h>
 #include <sys/ioctl.h>
 
-#include "bst.h"
+#include <antd/bst.h>
 #define MAX_CHANNEL_PATH            108
 #define MAX_CHANNEL_NAME            64
 #define HOT_LINE_SOCKET             "antd_hotline.sock"
@@ -28,6 +28,7 @@
 #define    CHANNEL_OPEN             (uint8_t)0x4
 #define    CHANNEL_CLOSE            (uint8_t)0x5
 #define    CHANNEL_DATA             (uint8_t)0x6
+#define    CHANNEL_CTRL             (uint8_t)0x7
 //#define    CHANNEL_LIST             (uint8_t)0x7
 typedef struct {
     int sock;
@@ -177,6 +178,7 @@ static uint8_t* msg_read_payload(int fd, int* size)
 
 static int msg_read(int fd, antd_tunnel_msg_t* msg)
 {
+    msg->data = NULL;
     if(msg_check_number(fd, MSG_MAGIC_BEGIN) == -1)
     {
         ERROR("Unable to check begin magic number on socket: %d", fd);
@@ -460,12 +462,12 @@ static void monitor_hotline(int listen_fd)
         // get channel name
         if(msg.header.size > MAX_CHANNEL_NAME)
         {
-            if(msg.data)
-                free(msg.data);
             msg.header.type = CHANNEL_ERROR;
             (void) snprintf(buff, MAX_CHANNEL_NAME, "Channel name exceeds %d bytes", MAX_CHANNEL_NAME);
             LOG("%s", buff);
             msg.header.size = strlen(buff);
+            if(msg.data)
+                free(msg.data);
             msg.data = (uint8_t*)buff;
             if(msg_write(fd, &msg) == -1)
             {
@@ -478,6 +480,8 @@ static void monitor_hotline(int listen_fd)
             buff[msg.header.size] = '\0';
             LOG("Open a new channel: %s (%d)", buff, fd);
             channel_open(fd, buff);
+            if(msg.data)
+                free(msg.data);
         }
         break;
 
@@ -485,6 +489,8 @@ static void monitor_hotline(int listen_fd)
         msg.header.type = CHANNEL_ERROR;
         (void) snprintf(buff, MAX_CHANNEL_NAME, "Unsupported msg type %d in hotline", (int)msg.header.type);
         msg.header.size = strlen(buff);
+        if(msg.data)
+            free(msg.data);
         msg.data = (uint8_t*)buff;
         LOG("%s", buff);
         if(msg_write(fd, &msg) == -1)
@@ -515,7 +521,7 @@ static void handle_channel(bst_node_t* node, void** args, int argc)
             node->data = NULL;
             return;
         }
-        LOG("Got new data on channel %s (%d)", channel->name, channel->sock);
+        //LOG("Got new data on channel %s (%d)", channel->name, channel->sock);
         // handle msg read
         if(msg_read(channel->sock, &msg) == -1)
         {
@@ -528,13 +534,10 @@ static void handle_channel(bst_node_t* node, void** args, int argc)
             case CHANNEL_ERROR:
             case CHANNEL_DATA:
             case CHANNEL_UNSUBSCRIBE:
+            case CHANNEL_CTRL:
                 // forward message to the correct client in the channel
                 msg.header.channel_id = node->key;
                 client = bst_find(channel->subscribers, msg.header.client_id);
-                if(msg.header.type == CHANNEL_UNSUBSCRIBE)
-                {
-                    channel->subscribers = bst_delete(channel->subscribers, msg.header.client_id);
-                }
                 if(client != NULL)
                 {
                     rq = (antd_client_t*) client->data;
@@ -547,18 +550,25 @@ static void handle_channel(bst_node_t* node, void** args, int argc)
                 {
                     ERROR("Unable to find client %d to write on channel %s", msg.header.client_id, channel->name);
                 }
+                if(msg.header.type == CHANNEL_UNSUBSCRIBE)
+                {
+                    channel->subscribers = bst_delete(channel->subscribers, msg.header.client_id);
+                }
                 break;
-                
+            
             case CHANNEL_CLOSE:
                 // close the current channel
                 channel_close(channel);
                 node->data = NULL;
                 list_put_ptr(channel_list, node);
                 break;
+            
             default:
                 LOG("Message type %d is not supported in client-application communication", msg.header.type);
                 break;
         }
+        if(msg.data)
+            free(msg.data);
     }
 }
 static void set_sock_fd(bst_node_t* node, void** args, int argc)
@@ -701,6 +711,7 @@ static void process_client_message(antd_tunnel_msg_t* msg, antd_client_t* client
     case CHANNEL_OK:
     case CHANNEL_ERROR:
     case CHANNEL_DATA:
+    case CHANNEL_CTRL:
         node = bst_find(g_tunnel.channels, msg->header.channel_id);
         if(node)
         {

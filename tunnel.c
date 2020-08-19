@@ -618,7 +618,7 @@ static void* multiplex(void* data_p)
                 break;
             case 0:
                 timeout.tv_sec = 0;
-                timeout.tv_usec = 500; // 5 ms
+                timeout.tv_usec = 10000; // 10 ms
                 select(0, NULL, NULL, NULL, &timeout);
                 break;
             // we have data

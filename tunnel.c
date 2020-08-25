@@ -13,10 +13,15 @@
 #include <sys/ioctl.h>
 
 #include <antd/bst.h>
-#define MAX_CHANNEL_PATH            108
+#include <antd/scheduler.h>
+#include <antd/ws.h>
+
 #define MAX_CHANNEL_NAME            64
 #define HOT_LINE_SOCKET             "antd_hotline.sock"
 #define SOCK_DIR_NAME               "channels"
+
+#define MAX_CHANNEL_PATH            (sizeof(__plugin__.tmpdir) +  strlen(SOCK_DIR_NAME) + strlen(HOT_LINE_SOCKET) + 2)
+
 #define MSG_MAGIC_BEGIN             0x414e5444 //ANTD
 #define MSG_MAGIC_END               0x44544e41 //DTNA
 #define SELECT_TIMEOUT              300 // ms
@@ -127,6 +132,7 @@ static int msg_check_number(int fd, int number)
     }
     return 0;
 }
+/*
 static int msg_read_string(int fd, char* buffer, uint8_t max_length)
 {
     uint8_t size;
@@ -147,6 +153,7 @@ static int msg_read_string(int fd, char* buffer, uint8_t max_length)
     }
     return 0;
 }
+*/
 
 static uint8_t* msg_read_payload(int fd, int* size)
 {
@@ -887,6 +894,7 @@ void *handle(void *rq_data)
 	    {
             case -1:
                 LOG("Error %d on select()\n", errno);
+                return task;
                 break;
             case 0:
                 timeout.tv_sec = 0;
@@ -941,7 +949,8 @@ void *handle(void *rq_data)
                                 {
                                     ERROR("Invalid begin magic number: %d, expected %d", long_value, MSG_MAGIC_BEGIN);
                                     free(buffer);
-                                    goto reschedule_task;
+                                    free(h);
+                                    return task;
                                 }
                                 // msgtype
                                 (void) memcpy(&msg.header.type, buffer + offset, sizeof(msg.header.type));
@@ -970,7 +979,8 @@ void *handle(void *rq_data)
                                 {
                                     ERROR("Invalid end magic number: %d, expected %d", long_value, MSG_MAGIC_END);
                                     free(buffer);
-                                    goto reschedule_task;
+                                    free(h);
+                                    return task;
                                 }
 
                                 // now we have the message
@@ -981,6 +991,16 @@ void *handle(void *rq_data)
                             free(buffer);
                         }
                     }
+                    else
+                    {
+                        LOG("Websocket: Text data is not supported");
+                        pthread_mutex_lock(&g_tunnel.lock);
+                        //ws_close(rq->client, 1011);
+                        bst_for_each(g_tunnel.channels, unsubscribe_notify, argv, 1);
+                        pthread_mutex_unlock(&g_tunnel.lock);
+                        free(h);
+                        return task;
+                    }
                     free(h);
                 }
         }
@@ -989,7 +1009,6 @@ void *handle(void *rq_data)
     {
         return task;
     }
-reschedule_task:
     task->handle = handle;
     task->type = HEAVY;
     task->access_time = time(NULL);

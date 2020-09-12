@@ -24,7 +24,6 @@
 
 #define MSG_MAGIC_BEGIN             0x414e5444 //ANTD
 #define MSG_MAGIC_END               0x44544e41 //DTNA
-#define SELECT_TIMEOUT              300 // ms
 
 #define    CHANNEL_OK               (uint8_t)0x0
 #define    CHANNEL_ERROR            (uint8_t)0x1
@@ -598,7 +597,6 @@ static void* multiplex(void* data_p)
     int max_fdm;
 	fd_set fd_in;
     int status = 0;
-    struct timeval timeout;
     int rc;
     void *args[2];
     list_t closed_channels;
@@ -606,8 +604,6 @@ static void* multiplex(void* data_p)
     antd_tunnel_t* tunnel_p = (antd_tunnel_t*) data_p;
     while(status == 0)
     {
-        timeout.tv_sec = 0;
-	    timeout.tv_usec = SELECT_TIMEOUT;
         FD_ZERO(&fd_in);
         FD_SET(tunnel_p->hotline, &fd_in);
         max_fdm = tunnel_p->hotline;
@@ -616,7 +612,7 @@ static void* multiplex(void* data_p)
         args[1] = (void*) &max_fdm;
         bst_for_each(tunnel_p->channels, set_sock_fd, args, 2);
         pthread_mutex_unlock(&tunnel_p->lock);
-        rc = select(max_fdm + 1, &fd_in, NULL, NULL, &timeout);
+        rc = select(max_fdm + 1, &fd_in, NULL, NULL, NULL);
         switch (rc)
 	    {
             case -1:
@@ -624,15 +620,12 @@ static void* multiplex(void* data_p)
                 status = 1;
                 break;
             case 0:
-                timeout.tv_sec = 0;
-                timeout.tv_usec = 10000; // 10 ms
-                select(0, NULL, NULL, NULL, &timeout);
                 break;
             // we have data
             default:
                 if(FD_ISSET(tunnel_p->hotline, &fd_in))
                 {
-                    LOG("Got new data on hotline");
+                    // LOG("Got new data on hotline");
                     monitor_hotline(tunnel_p->hotline);
                 }
                 pthread_mutex_lock(&tunnel_p->lock);

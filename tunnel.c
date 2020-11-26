@@ -22,8 +22,10 @@
 
 #define MAX_CHANNEL_PATH            (sizeof(__plugin__.tmpdir) +  strlen(SOCK_DIR_NAME) + strlen(HOT_LINE_SOCKET) + 2)
 
+#if VERIFY_HEADER
 #define MSG_MAGIC_BEGIN             0x414e5444 //ANTD
 #define MSG_MAGIC_END               0x44544e41 //DTNA
+#endif
 
 #define    CHANNEL_OK               (uint8_t)0x0
 #define    CHANNEL_ERROR            (uint8_t)0x1
@@ -185,11 +187,13 @@ static uint8_t* msg_read_payload(int fd, int* size)
 static int msg_read(int fd, antd_tunnel_msg_t* msg)
 {
     msg->data = NULL;
+#ifdef VERIFY_HEADER
     if(msg_check_number(fd, MSG_MAGIC_BEGIN) == -1)
     {
         ERROR("Unable to check begin magic number on socket: %d", fd);
         return -1;
     }
+#endif
     if(read(fd,&msg->header.type,sizeof(msg->header.type)) == -1)
     {
         ERROR("Unable to read msg type: %s", strerror(errno));
@@ -215,6 +219,7 @@ static int msg_read(int fd, antd_tunnel_msg_t* msg)
         ERROR("Unable to read msg payload data");
         return -1;
     }
+#ifdef VERIFY_HEADER
     if(msg_check_number(fd, MSG_MAGIC_END) == -1)
     {
         if(msg->data)
@@ -224,11 +229,13 @@ static int msg_read(int fd, antd_tunnel_msg_t* msg)
         ERROR("Unable to check end magic number");
         return -1;
     }
+#endif
     return 0;
 }
 
 static int msg_write(int fd, antd_tunnel_msg_t* msg)
 {
+#ifdef VERIFY_HEADER
     // write begin magic number
     int number = MSG_MAGIC_BEGIN;
     if(write(fd,&number, sizeof(number)) == -1)
@@ -236,6 +243,7 @@ static int msg_write(int fd, antd_tunnel_msg_t* msg)
         ERROR("Unable to write begin magic number: %s", strerror(errno));
         return -1;
     }
+#endif
     // write type
     if(write(fd,&msg->header.type, sizeof(msg->header.type)) == -1)
     {
@@ -269,12 +277,14 @@ static int msg_write(int fd, antd_tunnel_msg_t* msg)
             return -1;
         }
     }
+#ifdef VERIFY_HEADER
     number = MSG_MAGIC_END;
     if(write(fd,&number, sizeof(number)) == -1)
     {
         ERROR("Unable to write end magic number: %s", strerror(errno));
         return -1;
     }
+#endif
     return 0;
 }
 static void write_msg_to_client(antd_tunnel_msg_t* msg, antd_client_t* client)
@@ -283,22 +293,29 @@ static void write_msg_to_client(antd_tunnel_msg_t* msg, antd_client_t* client)
     int long_value = 0;
     int offset = 0;
     long_value = msg->header.size +
+#ifdef VERIFY_HEADER
             sizeof((int)MSG_MAGIC_BEGIN) +
+#endif
             sizeof(msg->header.type) +
             sizeof(msg->header.channel_id) +
             sizeof(msg->header.client_id) +
-            sizeof(msg->header.size) +
-            sizeof((int)MSG_MAGIC_END);
+            sizeof(msg->header.size) 
+#ifdef VERIFY_HEADER
+            +sizeof((int)MSG_MAGIC_END)
+#endif
+            ;
     buffer = (uint8_t*) malloc(long_value);
     if(buffer == NULL)
     {
         ERROR("unable to allocate memory for write");
         return;
     }
+#ifdef VERIFY_HEADER
     // magic
     long_value = (int) MSG_MAGIC_BEGIN;
     (void)memcpy(buffer,&long_value,sizeof(long_value));
     offset += sizeof(long_value);
+#endif
     // type
     (void)memcpy(buffer+offset,&msg->header.type,sizeof(msg->header.type));
     offset += sizeof(msg->header.type);
@@ -314,10 +331,13 @@ static void write_msg_to_client(antd_tunnel_msg_t* msg, antd_client_t* client)
     // payload
     (void)memcpy(buffer+offset,msg->data,msg->header.size);
     offset += msg->header.size;
+
+#ifdef VERIFY_HEADER
     // magic end
     long_value = (int) MSG_MAGIC_END;
     (void)memcpy(buffer+offset,&long_value,sizeof(long_value));
     offset += sizeof(long_value);
+#endif
 
     // write it to the websocket
     ws_b(client,buffer, offset);
@@ -935,6 +955,7 @@ void *handle(void *rq_data)
                             if(h->plen == 0)
                             {
                                 offset = 0;
+#ifdef VERIFY_HEADER
                                 // verify begin magic
                                 (void)memcpy(&long_value, buffer,sizeof(long_value));
                                 offset += sizeof(long_value);
@@ -945,6 +966,7 @@ void *handle(void *rq_data)
                                     free(h);
                                     return task;
                                 }
+#endif
                                 // msgtype
                                 (void) memcpy(&msg.header.type, buffer + offset, sizeof(msg.header.type));
                                 offset += sizeof(msg.header.type);
@@ -965,6 +987,7 @@ void *handle(void *rq_data)
                                 msg.data = buffer + offset;
                                 offset += msg.header.size;
 
+#ifdef VERIFY_HEADER
                                 // verify end magic
                                 (void)memcpy(&long_value, buffer + offset ,sizeof(long_value));
                                 offset += sizeof(long_value);
@@ -975,6 +998,7 @@ void *handle(void *rq_data)
                                     free(h);
                                     return task;
                                 }
+#endif
 
                                 // now we have the message
                                 pthread_mutex_lock(&g_tunnel.lock);

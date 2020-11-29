@@ -20,12 +20,12 @@
 #define HOT_LINE_SOCKET             "antd_hotline.sock"
 #define SOCK_DIR_NAME               "channels"
 
+#define MAX_CHANNEL_ID              65535u
+
 #define MAX_CHANNEL_PATH            (sizeof(__plugin__.tmpdir) +  strlen(SOCK_DIR_NAME) + strlen(HOT_LINE_SOCKET) + 2)
 
-#if VERIFY_HEADER
-#define MSG_MAGIC_BEGIN             0x414e5444 //ANTD
-#define MSG_MAGIC_END               0x44544e41 //DTNA
-#endif
+#define MSG_MAGIC_BEGIN             (uint16_t)0x414e //AN
+#define MSG_MAGIC_END               (uint16_t)0x5444 //TD
 
 #define    CHANNEL_OK               (uint8_t)0x0
 #define    CHANNEL_ERROR            (uint8_t)0x1
@@ -44,9 +44,9 @@ typedef struct {
 
 typedef struct {
     uint8_t type;
-    int channel_id;
-    int client_id;
-    int size;
+    uint16_t channel_id;
+    uint16_t client_id;
+    uint16_t size;
 } antd_tunnel_msg_h_t;
 
 typedef struct{
@@ -55,7 +55,7 @@ typedef struct{
 } antd_tunnel_msg_t;
 /**
  * Message is sent in the following format
- * |BEGIN MAGIC(4)|MSG TYPE(1)| CHANNEL ID (4)| CLIENT ID (4)| data length (4)| data(m) | END MAGIC(4)|
+ * |BEGIN MAGIC(2)|MSG TYPE(1)| CHANNEL ID (2)| CLIENT ID (2)| data length (2)| data(m) | END MAGIC(2)|
  */
 
 typedef struct {
@@ -118,9 +118,9 @@ static int mk_socket(const char* name, char* path)
     return fd;
 }
 
-static int msg_check_number(int fd, int number)
+static int msg_check_number(int fd, uint16_t number)
 {
-    int value;
+    uint16_t value;
     if(read(fd,&value,sizeof(value)) == -1)
     {
         ERROR("Unable to read integer value on socket %d: %s", fd, strerror(errno));
@@ -128,7 +128,7 @@ static int msg_check_number(int fd, int number)
     }
     if(number != value)
     {
-        ERROR("Value mismatches: %0x%04X, expected %0x%04X", value, number);
+        ERROR("Value mismatches: %0x%02X, expected %0x%02X", value, number);
         return -1;
     }
     return 0;
@@ -156,7 +156,7 @@ static int msg_read_string(int fd, char* buffer, uint8_t max_length)
 }
 */
 
-static uint8_t* msg_read_payload(int fd, int* size)
+static uint8_t* msg_read_payload(int fd, uint16_t* size)
 {
     uint8_t* data;
     if(read(fd,size,sizeof(*size)) == -1)
@@ -187,13 +187,11 @@ static uint8_t* msg_read_payload(int fd, int* size)
 static int msg_read(int fd, antd_tunnel_msg_t* msg)
 {
     msg->data = NULL;
-#ifdef VERIFY_HEADER
     if(msg_check_number(fd, MSG_MAGIC_BEGIN) == -1)
     {
         ERROR("Unable to check begin magic number on socket: %d", fd);
         return -1;
     }
-#endif
     if(read(fd,&msg->header.type,sizeof(msg->header.type)) == -1)
     {
         ERROR("Unable to read msg type: %s", strerror(errno));
@@ -219,7 +217,6 @@ static int msg_read(int fd, antd_tunnel_msg_t* msg)
         ERROR("Unable to read msg payload data");
         return -1;
     }
-#ifdef VERIFY_HEADER
     if(msg_check_number(fd, MSG_MAGIC_END) == -1)
     {
         if(msg->data)
@@ -229,21 +226,18 @@ static int msg_read(int fd, antd_tunnel_msg_t* msg)
         ERROR("Unable to check end magic number");
         return -1;
     }
-#endif
     return 0;
 }
 
 static int msg_write(int fd, antd_tunnel_msg_t* msg)
 {
-#ifdef VERIFY_HEADER
     // write begin magic number
-    int number = MSG_MAGIC_BEGIN;
+    uint16_t number = MSG_MAGIC_BEGIN;
     if(write(fd,&number, sizeof(number)) == -1)
     {
         ERROR("Unable to write begin magic number: %s", strerror(errno));
         return -1;
     }
-#endif
     // write type
     if(write(fd,&msg->header.type, sizeof(msg->header.type)) == -1)
     {
@@ -277,45 +271,35 @@ static int msg_write(int fd, antd_tunnel_msg_t* msg)
             return -1;
         }
     }
-#ifdef VERIFY_HEADER
     number = MSG_MAGIC_END;
     if(write(fd,&number, sizeof(number)) == -1)
     {
         ERROR("Unable to write end magic number: %s", strerror(errno));
         return -1;
     }
-#endif
     return 0;
 }
 static void write_msg_to_client(antd_tunnel_msg_t* msg, antd_client_t* client)
 {
     uint8_t* buffer;
-    int long_value = 0;
+    uint16_t u16 = 0;
     int offset = 0;
-    long_value = msg->header.size +
-#ifdef VERIFY_HEADER
+    buffer = (uint8_t*) malloc(msg->header.size +
             sizeof((int)MSG_MAGIC_BEGIN) +
-#endif
             sizeof(msg->header.type) +
             sizeof(msg->header.channel_id) +
             sizeof(msg->header.client_id) +
-            sizeof(msg->header.size) 
-#ifdef VERIFY_HEADER
-            +sizeof((int)MSG_MAGIC_END)
-#endif
-            ;
-    buffer = (uint8_t*) malloc(long_value);
+            sizeof(msg->header.size) +
+            sizeof((int)MSG_MAGIC_END));
     if(buffer == NULL)
     {
         ERROR("unable to allocate memory for write");
         return;
     }
-#ifdef VERIFY_HEADER
     // magic
-    long_value = (int) MSG_MAGIC_BEGIN;
-    (void)memcpy(buffer,&long_value,sizeof(long_value));
-    offset += sizeof(long_value);
-#endif
+    u16 = MSG_MAGIC_BEGIN;
+    (void)memcpy(buffer,&u16,sizeof(u16));
+    offset += sizeof(u16);
     // type
     (void)memcpy(buffer+offset,&msg->header.type,sizeof(msg->header.type));
     offset += sizeof(msg->header.type);
@@ -332,12 +316,10 @@ static void write_msg_to_client(antd_tunnel_msg_t* msg, antd_client_t* client)
     (void)memcpy(buffer+offset,msg->data,msg->header.size);
     offset += msg->header.size;
 
-#ifdef VERIFY_HEADER
     // magic end
-    long_value = (int) MSG_MAGIC_END;
-    (void)memcpy(buffer+offset,&long_value,sizeof(long_value));
-    offset += sizeof(long_value);
-#endif
+    u16 = MSG_MAGIC_END;
+    (void)memcpy(buffer+offset,&u16,sizeof(u16));
+    offset += sizeof(u16);
 
     // write it to the websocket
     ws_b(client,buffer, offset);
@@ -353,7 +335,7 @@ static void unsubscribe(bst_node_t* node, void** argv, int argc)
     antd_tunnel_msg_t msg;
     if(node->data != NULL)
     {
-        msg.header.channel_id = simple_hash(channel->name);
+        msg.header.channel_id = hash(channel->name, MAX_CHANNEL_ID);
         msg.header.client_id = node->key;
         msg.header.type = CHANNEL_UNSUBSCRIBE;
         msg.header.size = 0;
@@ -381,7 +363,7 @@ static void channel_open(int fd, const char* name)
     char buffer[BUFFLEN];
     antd_tunnel_channel_t* channel = NULL;
     bst_node_t* node;
-    int hash_val = simple_hash(name);
+    int hash_val = hash(name, MAX_CHANNEL_ID);
     antd_tunnel_msg_t msg;
     msg.data = (uint8_t*)buffer;
     msg.header.channel_id = 0;
@@ -762,7 +744,8 @@ static void process_client_message(antd_tunnel_msg_t* msg, antd_client_t* client
         {
             (void)memcpy(buff, msg->data, msg->header.size);
             buff[msg->header.size] = '\0';
-            hash_val = simple_hash(buff);
+            hash_val = hash(buff, MAX_CHANNEL_ID);
+            LOG("Requested channel: [%s]: %d", buff, hash_val);
         }
         else
         {
@@ -807,7 +790,7 @@ static void process_client_message(antd_tunnel_msg_t* msg, antd_client_t* client
         }
         else
         {
-            (void) snprintf(buff, BUFFLEN, "Channel not found");
+            (void) snprintf(buff, BUFFLEN, "Channel not found: %d", hash_val);
             msg->header.size = strlen(buff);
             msg->data = (uint8_t*)buff;
             ERROR("%s", buff);
@@ -837,7 +820,7 @@ static void unsubscribe_notify_handle(bst_node_t* node, void** argv, int argc)
         if(channel != NULL)
         {
             msg.header.type = CHANNEL_UNSUBSCRIBE;
-            msg.header.channel_id = simple_hash(channel->name);
+            msg.header.channel_id = hash(channel->name, MAX_CHANNEL_ID);
             msg.header.client_id = node->key;
             msg.header.size = 0;
             msg.data = NULL;
@@ -887,7 +870,8 @@ void *handle(void *rq_data)
     struct timeval timeout;
     int status;
     fd_set fd_in;
-    int long_value, offset;
+    int offset;
+    uint16_t u16;
     task->priority++;
 
     void * argv[1];
@@ -955,18 +939,16 @@ void *handle(void *rq_data)
                             if(h->plen == 0)
                             {
                                 offset = 0;
-#ifdef VERIFY_HEADER
                                 // verify begin magic
-                                (void)memcpy(&long_value, buffer,sizeof(long_value));
-                                offset += sizeof(long_value);
-                                if(long_value != MSG_MAGIC_BEGIN)
+                                (void)memcpy(&u16, buffer,sizeof(u16));
+                                offset += sizeof(u16);
+                                if(u16 != MSG_MAGIC_BEGIN)
                                 {
-                                    ERROR("Invalid begin magic number: %d, expected %d", long_value, MSG_MAGIC_BEGIN);
+                                    ERROR("Invalid begin magic number: %d, expected %d", u16, MSG_MAGIC_BEGIN);
                                     free(buffer);
                                     free(h);
                                     return task;
                                 }
-#endif
                                 // msgtype
                                 (void) memcpy(&msg.header.type, buffer + offset, sizeof(msg.header.type));
                                 offset += sizeof(msg.header.type);
@@ -987,18 +969,16 @@ void *handle(void *rq_data)
                                 msg.data = buffer + offset;
                                 offset += msg.header.size;
 
-#ifdef VERIFY_HEADER
                                 // verify end magic
-                                (void)memcpy(&long_value, buffer + offset ,sizeof(long_value));
-                                offset += sizeof(long_value);
-                                if(long_value != MSG_MAGIC_END)
+                                (void)memcpy(&u16, buffer + offset ,sizeof(u16));
+                                offset += sizeof(u16);
+                                if(u16 != MSG_MAGIC_END)
                                 {
-                                    ERROR("Invalid end magic number: %d, expected %d", long_value, MSG_MAGIC_END);
+                                    ERROR("Invalid end magic number: %d, expected %d", u16, MSG_MAGIC_END);
                                     free(buffer);
                                     free(h);
                                     return task;
                                 }
-#endif
 
                                 // now we have the message
                                 pthread_mutex_lock(&g_tunnel.lock);

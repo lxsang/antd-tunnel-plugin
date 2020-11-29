@@ -63,7 +63,7 @@ typedef struct {
     bst_node_t* channels;
     pthread_t tid;
     int hotline;
-    uint32_t id_allocator;
+    uint16_t id_allocator;
     uint8_t initialized;
 } antd_tunnel_t;
 
@@ -760,7 +760,7 @@ static void process_client_message(antd_tunnel_msg_t* msg, antd_client_t* client
                 if(msg->header.type == CHANNEL_SUBSCRIBE)
                 {
                     g_tunnel.id_allocator++;
-                    channel->subscribers = bst_insert(channel->subscribers, g_tunnel.id_allocator, client);
+                    channel->subscribers = bst_insert(channel->subscribers, (int)g_tunnel.id_allocator, client);
                     // sent ok to client
                     msg->header.type = CHANNEL_OK;
                     msg->header.channel_id = hash_val;

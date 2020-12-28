@@ -21,6 +21,7 @@
 #define SOCK_DIR_NAME "channels"
 
 #define PING_INTERVAL 10u // 10s
+#define PROCESS_TIMEOUT 30000u //30 ms
 
 #define MAX_CHANNEL_ID 65535u
 
@@ -908,7 +909,7 @@ void *handle(void *rq_data)
     {
         argv[0] = (void *)rq->client;
         timeout.tv_sec = 0;
-        timeout.tv_usec = 500; // 5 ms
+        timeout.tv_usec = PROCESS_TIMEOUT;
         FD_ZERO(&fd_in);
         FD_SET(client->sock, &fd_in);
 
@@ -924,7 +925,7 @@ void *handle(void *rq_data)
             break;
         case 0:
             timeout.tv_sec = 0;
-            timeout.tv_usec = 500; // 5 ms
+            timeout.tv_usec = PROCESS_TIMEOUT;
             select(0, NULL, NULL, NULL, &timeout);
             break;
         default:
@@ -1033,6 +1034,12 @@ void *handle(void *rq_data)
                 }
                 free(h);
             }
+            else
+            {
+                timeout.tv_sec = 0;
+                timeout.tv_usec = PROCESS_TIMEOUT;
+                select(0, NULL, NULL, NULL, &timeout);
+            }
         }
         // check whether we need to send ping message to client
         if (difftime(time(NULL), client->last_io) > (double)PING_INTERVAL)
@@ -1063,6 +1070,5 @@ void *handle(void *rq_data)
     task->handle = handle;
     task->type = HEAVY;
     task->access_time = time(NULL);
-    select(0, NULL, NULL, NULL, &timeout);
     return task;
 }

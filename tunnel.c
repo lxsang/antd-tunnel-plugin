@@ -52,7 +52,7 @@ typedef struct
     uint8_t type;
     uint16_t channel_id;
     uint16_t client_id;
-    uint16_t size;
+    uint32_t size;
 } antd_tunnel_msg_h_t;
 
 typedef struct
@@ -162,7 +162,7 @@ static int msg_read_string(int fd, char* buffer, uint8_t max_length)
 }
 */
 
-static uint8_t *msg_read_payload(int fd, uint16_t *size)
+static uint8_t *msg_read_payload(int fd, uint32_t *size)
 {
     uint8_t *data;
     if (read(fd, size, sizeof(*size)) == -1)

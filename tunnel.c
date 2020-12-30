@@ -612,6 +612,17 @@ static void handle_channel(bst_node_t *node, void **args, int argc)
                     if (write_msg_to_client(&msg, rq) != 0)
                     {
                         ERROR("Unable to send CTRL command to client");
+                        // remove the client from the list
+                        if (msg.header.type != CHANNEL_UNSUBSCRIBE)
+                        {
+                            // tell the other endpoint to remove the subscriber
+                            msg.header.type = CHANNEL_UNSUBSCRIBE;
+                            msg.header.size = 0;
+                            if (msg_write(channel->sock, &msg) == -1)
+                            {
+                                ERROR("Unable to send unsubscribe notification to channel %s (%d)", channel->name, channel->sock);
+                            }
+                        }
                     }
                 }
             }
@@ -784,6 +795,14 @@ static void process_client_message(antd_tunnel_msg_t *msg, antd_client_t *client
                 if (msg_write(channel->sock, msg) == -1)
                 {
                     ERROR("Unable to write data to channel [%s] from client %d", channel->name, msg->header.client_id);
+                    // notify client to unsubscribe
+                    msg->header.type = CHANNEL_UNSUBSCRIBE;
+                    msg->header.size = 0;
+                    if (write_msg_to_client(msg, client) != 0)
+                    {
+                        ERROR("Unable to send unsubscribe message to client to client");
+                    }
+                    return;
                 }
             }
         }

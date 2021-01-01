@@ -769,10 +769,13 @@ void destroy()
             (void)snprintf(path, BUFFLEN, "%s/%s/%s", __plugin__.tmpdir, SOCK_DIR_NAME, HOT_LINE_SOCKET);
             (void)unlink(path);
         }
-        pthread_mutex_unlock(&g_tunnel.lock);
+        pthread_cancel(g_tunnel.tid);
+        LOG("Joining tunnel thread");
         (void)pthread_join(g_tunnel.tid, NULL);
+        pthread_mutex_unlock(&g_tunnel.lock);
         bst_free(g_tunnel.channels);
         pthread_mutex_destroy(&g_tunnel.lock);
+        LOG("Antd tunnel is destroyed");
     }
 }
 static void process_client_message(antd_tunnel_msg_t *msg, antd_client_t *client)

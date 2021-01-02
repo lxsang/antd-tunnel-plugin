@@ -969,7 +969,6 @@ void *handle(void *rq_data)
     fd_set fd_in;
     int offset;
     uint16_t u16;
-    task->priority++;
 
     void *argv[1];
     if (g_tunnel.initialized == 0)

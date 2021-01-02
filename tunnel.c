@@ -79,54 +79,6 @@ typedef struct
 
 static antd_tunnel_t g_tunnel;
 
-static int guard_read(int fd, void* buffer, size_t size)
-{
-    int n = 0;
-    int read_len;
-    int st;
-    while(n != (int)size)
-    {
-        read_len = (int)size - n;
-        st = read(fd,buffer + n,read_len);
-        if(st == -1)
-        {
-            ERROR( "Unable to read from #%d: %s", fd, strerror(errno));
-            return -1;
-        }
-        if(st == 0)
-        {
-            ERROR("Endpoint %d is closed", fd);
-            return -1;
-        }
-        n += st;
-    }
-    return n;
-}
-
-static int guard_write(int fd, void* buffer, size_t size)
-{
-    int n = 0;
-    int write_len;
-    int st;
-    while(n != (int)size)
-    {
-        write_len = (int)size - n;
-        st = write(fd,buffer + n,write_len);
-        if(st == -1)
-        {
-            ERROR("Unable to write to #%d: %s", fd, strerror(errno));
-            return -1;
-        }
-        if(st == 0)
-        {
-            ERROR("Endpoint %d is closed", fd);
-            return -1;
-        }
-        n += st;
-    }
-    return n;
-}
-
 static int mk_socket(const char *name, char *path)
 {
     struct sockaddr_un address;

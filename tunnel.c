@@ -981,6 +981,7 @@ void *handle(void *rq_data)
                 {
                     // we have data, now read the message,
                     // the message must be in bin
+                    int ws_msg_len = h->plen;
                     buffer = (uint8_t *)malloc(h->plen + 1);
                     if (buffer)
                     {
@@ -1018,10 +1019,14 @@ void *handle(void *rq_data)
                             // data size
                             (void)memcpy(&msg.header.size, buffer + offset, sizeof(msg.header.size));
                             offset += sizeof(msg.header.size);
-
                             // data
                             msg.data = buffer + offset;
                             offset += msg.header.size;
+                            if(offset > (int)ws_msg_len)
+                            {
+                                ERROR("Invalid message len: %d", msg.header.size);
+                                return task;
+                            }
 
                             // verify end magic
                             (void)memcpy(&u16, buffer + offset, sizeof(u16));

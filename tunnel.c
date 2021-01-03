@@ -1116,7 +1116,6 @@ void *handle(void *rq_data)
         return task;
     }
     task->handle = handle;
-    task->type = HEAVY;
     task->access_time = time(NULL);
     return task;
 }

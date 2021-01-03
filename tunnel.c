@@ -1117,5 +1117,6 @@ void *handle(void *rq_data)
     }
     task->handle = handle;
     task->access_time = time(NULL);
+    antd_task_bind_event(task,rq->client->sock,0, TASK_EVT_ON_WRITABLE| TASK_EVT_ON_READABLE);
     return task;
 }

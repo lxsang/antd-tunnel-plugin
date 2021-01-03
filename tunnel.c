@@ -1050,6 +1050,16 @@ void *handle(void *rq_data)
                         free(buffer);
                     }
                 }
+                else if(h->opcode == WS_PONG)
+                {
+                    buffer = (uint8_t *)malloc(h->plen + 1);
+                    if (buffer)
+                    {
+                        ws_read_data(rq->client, h, h->plen, buffer);
+                        LOG("Receive pong message from client: %s. Client Alive", buffer);
+                        free(buffer);
+                    }
+                }
                 else
                 {
                     LOG("Websocket: Text data is not supported");
@@ -1072,7 +1082,7 @@ void *handle(void *rq_data)
         // check whether we need to send ping message to client
         if (difftime(time(NULL), client->last_io) > (double)PING_INTERVAL)
         {
-            // send message to client
+            /*
             msg.header.type = TUNNEL_PING;
             msg.header.client_id = 0;
             msg.header.channel_id = 0;
@@ -1080,6 +1090,16 @@ void *handle(void *rq_data)
             msg.data = NULL;
 
             if (write_msg_to_client(&msg, client) != 0)
+            {
+                // close the connection
+                pthread_mutex_lock(&g_tunnel.lock);
+                //ws_close(rq->client, 1011);
+                bst_for_each(g_tunnel.channels, unsubscribe_notify, argv, 1);
+                pthread_mutex_unlock(&g_tunnel.lock);
+                ERROR("Unable to ping client, close the connection: %d", client->sock);
+                return task;
+            }*/
+            if(ws_ping(client,"ANTD-TUNNEL",0) != 0)
             {
                 // close the connection
                 pthread_mutex_lock(&g_tunnel.lock);

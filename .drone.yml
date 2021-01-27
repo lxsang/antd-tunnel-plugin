@@ -1,0 +1,28 @@
+---
+kind: pipeline
+type: exec
+name: default
+platform:
+  os: linux
+  arch: arm64
+clone:
+  disable: true
+steps:
+- name: clone
+  commands:
+  - pwd
+  - git clone git@iohub.dev:lxsang/antd-tunnel-plugin.git
+  - cd ./antd-tunnel-plugin && git checkout master
+- name: build
+  commands:
+  - cd ./antd-tunnel-plugin
+  - libtoolize
+  - aclocal
+  - autoconf
+  - automake --add-missing
+  - ./configure --prefix=/opt/cloud/cuser
+  - make
+  - make install
+trigger:
+  branch:
+  - master

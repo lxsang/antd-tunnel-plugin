@@ -18,9 +18,13 @@
 
 #define MAX_CHANNEL_NAME            64
 #define HOT_LINE_SOCKET             "antd_hotline.sock"
+#define KEY_CHAIN_FIFO              "antunnel_keychain"
 #define SOCK_DIR_NAME               "channels"
+#define COOKIE_NAME                 "sessionid"
 
 #define MAX_CHANNEL_ID              65535u
+#define KEY_LEN                     20
+//#define MAX_SESSION_TIMEOUT
 
 #define MAX_CHANNEL_PATH            (sizeof(__plugin__.tmpdir) +  strlen(SOCK_DIR_NAME) + strlen(HOT_LINE_SOCKET) + 2)
 
@@ -58,17 +62,43 @@ typedef struct{
  * |BEGIN MAGIC(2)|MSG TYPE(1)| CHANNEL ID (2)| CLIENT ID (2)| data length (2)| data(m) | END MAGIC(2)|
  */
 
+ typedef struct {
+    char hash[KEY_LEN + 1]; // sha1sum + terminal byte
+    time_t last_update;
+ } antd_tunnel_key_t;
+
 typedef struct {
     pthread_mutex_t lock;
     bst_node_t* channels;
+    bst_node_t* keychain;
     pthread_t tid;
     int hotline;
+    int key_fd;
     uint16_t id_allocator;
     uint8_t initialized;
 } antd_tunnel_t;
 
 static antd_tunnel_t g_tunnel;
 
+static int mk_keychain_fifo(const char* name, char * path)
+{
+    // create the FIFO
+    (void)snprintf(path, MAX_CHANNEL_PATH,"%s/%s/%s",__plugin__.tmpdir, SOCK_DIR_NAME, name);
+    (void)unlink(path);
+    if (mkfifo(path, 0666) == -1)
+    {
+        ERROR("Unable to create keychain FIFO %s: %s", path, strerror(errno));
+        return -1;
+    }
+    int fifo_fd = open(path, O_RDWR);
+    if (fifo_fd == -1)
+    {
+        ERROR("Unable to open FIFO %s: %s", path, strerror(errno));
+        return -1;
+    }
+    M_LOG("Keychain FIFO: %s created", path);
+    return fifo_fd;
+}
 
 static int mk_socket(const char* name, char* path)
 {
@@ -447,6 +477,39 @@ static void channel_close(antd_tunnel_channel_t* channel)
         }
     }
 }
+static void update_keychain(int listen_fd)
+{
+    antd_tunnel_key_t* key_p = (antd_tunnel_key_t*) malloc(sizeof(antd_tunnel_key_t));
+    if(key == NULL)
+    {
+        ERROR("Unable to allocate memory for key");
+        return;
+    }
+    (void)memset(key_p->hash, 0, KEY_LEN + 1);
+    if (read(listen_fd, key_p->hash, KEY_LEN) == -1)
+    {
+        ERROR("Unable to read data from keychain FIFO: %s", strerror(errno));
+        free(key_p);
+        return;
+    }
+    // looking for key in the keychain
+    int hash_val = simple_hash(key_p->hash);
+    pthread_mutex_lock(&g_tunnel.lock);
+    antd_tunnel_key_t* node = (antd_tunnel_key_t*)bst_find(g_tunnel.keychain, hash_val);
+    if(node == NULL)
+    {
+        key_p->last_update = time(NULL);
+        bst_insert(g_tunnel.keychain, hash_val, (void*) key_p);
+        LOG("New key add to the keychain: %s", key_p->hash);
+    }
+    else
+    {
+        node->last_update = time(NULL);
+        LOG("Update existing key in the keychain");
+        free(key_p);
+    }
+    pthread_mutex_unlock(&g_tunnel.lock);
+}
 static void monitor_hotline(int listen_fd)
 {
     char buff[MAX_CHANNEL_NAME+1];
@@ -608,7 +671,8 @@ static void* multiplex(void* data_p)
     {
         FD_ZERO(&fd_in);
         FD_SET(tunnel_p->hotline, &fd_in);
-        max_fdm = tunnel_p->hotline;
+        FD_SET(tunnel_p->key_fd, &fd_in);
+        max_fdm = tunnel_p->hotline > tunnel_p->key_fd? tunnel_p->hotline: tunnel_p->key_fd;
         pthread_mutex_lock(&tunnel_p->lock);
         args[0] = (void*) &fd_in;
         args[1] = (void*) &max_fdm;
@@ -629,6 +693,10 @@ static void* multiplex(void* data_p)
                 {
                     // LOG("Got new data on hotline");
                     monitor_hotline(tunnel_p->hotline);
+                }
+                if(FD_ISSET(tunnel_p->key_fd, &fd_in))
+                {
+                    update_keychain(tunnel_p->key_fd);
                 }
                 pthread_mutex_lock(&tunnel_p->lock);
                 closed_channels = list_init();
@@ -657,10 +725,17 @@ void init()
     g_tunnel.channels = NULL;
     g_tunnel.id_allocator = 0;
     g_tunnel.initialized = 0;
-
+    g_tunnel.keychain = NULL;
+    g_tunnel.key_fd = -1;
     if((g_tunnel.hotline = mk_socket(HOT_LINE_SOCKET, path)) == -1)
     {
         ERROR("Unable to create hotline socket");
+        destroy();
+        return;
+    }
+    if((g_tunnel.key_fd = mk_keychain_fifo(KEY_CHAIN_FIFO, path)) == -1)
+    {
+        ERROR("Unable to create keychain FIFO");
         destroy();
         return;
     }
@@ -684,21 +759,27 @@ static void free_subscribers(bst_node_t* node, void** args, int argc)
 }
 void destroy()
 {
-    char path[BUFFLEN];
+    char path[MAX_CHANNEL_PATH];
     if(g_tunnel.initialized)
     {
         pthread_mutex_lock(&g_tunnel.lock);
         bst_for_each(g_tunnel.channels, free_subscribers, NULL, 0);
-        if(g_tunnel.hotline != -1)
-        {
-            (void) close(g_tunnel.hotline);
-            (void) snprintf(path, BUFFLEN, "%s/%s/%s", __plugin__.tmpdir, SOCK_DIR_NAME, HOT_LINE_SOCKET);
-            (void) unlink(path);
-        }
         pthread_mutex_unlock(&g_tunnel.lock);
         (void)pthread_join(g_tunnel.tid, NULL);
         bst_free(g_tunnel.channels);
         pthread_mutex_destroy(&g_tunnel.lock);
+    }
+    if(g_tunnel.hotline != -1)
+    {
+        (void) close(g_tunnel.hotline);
+        (void) snprintf(path, BUFFLEN, "%s/%s/%s", __plugin__.tmpdir, SOCK_DIR_NAME, HOT_LINE_SOCKET);
+        (void) unlink(path);
+    }
+    if(g_tunnel.key_fd != -1)
+    {
+        (void) close(g_tunnel.key_fd);
+        (void) snprintf(path, BUFFLEN, "%s/%s/%s", __plugin__.tmpdir, SOCK_DIR_NAME, KEY_CHAIN_FIFO);
+        (void) unlink(path);
     }
 }
 static void process_client_message(antd_tunnel_msg_t* msg, antd_client_t* client)

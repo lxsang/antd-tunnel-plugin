@@ -18,6 +18,7 @@
 #include <time.h>
 #include <fcntl.h>
 #include <sys/time.h>
+#include <netinet/in.h>
 
 #define MAX_CHANNEL_NAME 64
 #define HOT_LINE_SOCKET "antd_hotline.sock"
@@ -171,6 +172,7 @@ static int msg_check_number(int fd, uint16_t number)
         ERROR("Unable to read integer value on socket %d: %s", fd, strerror(errno));
         return -1;
     }
+    value = ntohs(value);
     if (number != value)
     {
         ERROR("Value mismatches: 0x%02X, expected 0x%02X", value, number);
@@ -209,6 +211,7 @@ static uint8_t *msg_read_payload(int fd, uint32_t *size)
         ERROR("Unable to read payload data size: %s", strerror(errno));
         return NULL;
     }
+    *size = ntohl(*size);
     if (*size <= 0)
     {
         return NULL;
@@ -252,11 +255,13 @@ static int msg_read(int fd, antd_tunnel_msg_t *msg)
         ERROR("Unable to read msg channel id");
         return -1;
     }
+    msg->header.channel_id = ntohs(msg->header.channel_id);
     if (guard_read(fd, &msg->header.client_id, sizeof(msg->header.client_id)) == -1)
     {
         ERROR("Unable to read msg client id");
         return -1;
     }
+    msg->header.client_id = ntohs(msg->header.client_id);
     if ((msg->data = msg_read_payload(fd, &msg->header.size)) == NULL && msg->header.size != 0)
     {
         ERROR("Unable to read msg payload data");
@@ -276,9 +281,11 @@ static int msg_read(int fd, antd_tunnel_msg_t *msg)
 
 static int msg_write(int fd, antd_tunnel_msg_t *msg)
 {
+    uint16_t net16;
+    uint32_t net32;
     // write begin magic number
-    uint16_t number = MSG_MAGIC_BEGIN;
-    if (guard_write(fd, &number, sizeof(number)) == -1)
+    net16 = htons(MSG_MAGIC_BEGIN);
+    if (guard_write(fd, &net16, sizeof(net16)) == -1)
     {
         ERROR("Unable to write begin magic number: %s", strerror(errno));
         return -1;
@@ -290,19 +297,22 @@ static int msg_write(int fd, antd_tunnel_msg_t *msg)
         return -1;
     }
     // write channel id
-    if (guard_write(fd, &msg->header.channel_id, sizeof(msg->header.channel_id)) == -1)
+    net16 = htons(msg->header.channel_id);
+    if (guard_write(fd, &net16, sizeof(msg->header.channel_id)) == -1)
     {
         ERROR("Unable to write msg channel id: %s", strerror(errno));
         return -1;
     }
     //write client id
-    if (guard_write(fd, &msg->header.client_id, sizeof(msg->header.client_id)) == -1)
+    net16 = htons(msg->header.client_id);
+    if (guard_write(fd, &net16, sizeof(msg->header.client_id)) == -1)
     {
         ERROR("Unable to write msg client id: %s", strerror(errno));
         return -1;
     }
     // write payload len
-    if (guard_write(fd, &msg->header.size, sizeof(msg->header.size)) == -1)
+    net32 = htonl(msg->header.size);
+    if (guard_write(fd, &net32, sizeof(msg->header.size)) == -1)
     {
         ERROR("Unable to write msg payload length: %s", strerror(errno));
         return -1;
@@ -316,8 +326,8 @@ static int msg_write(int fd, antd_tunnel_msg_t *msg)
             return -1;
         }
     }
-    number = MSG_MAGIC_END;
-    if (guard_write(fd, &number, sizeof(number)) == -1)
+    net16 = htons(MSG_MAGIC_END);
+    if (guard_write(fd, &net16, sizeof(net16)) == -1)
     {
         ERROR("Unable to write end magic number: %s", strerror(errno));
         return -1;
@@ -329,6 +339,7 @@ static int write_msg_to_client(antd_tunnel_msg_t *msg, antd_client_t *client)
     uint8_t *buffer;
     int offset = 0;
     int ret;
+    uint16_t net16;
     buffer = (uint8_t *)malloc(msg->header.size +
                                sizeof(msg->header.type) +
                                sizeof(msg->header.channel_id) +
@@ -342,10 +353,12 @@ static int write_msg_to_client(antd_tunnel_msg_t *msg, antd_client_t *client)
     (void)memcpy(buffer, &msg->header.type, sizeof(msg->header.type));
     offset += sizeof(msg->header.type);
     // channel id
-    (void)memcpy(buffer + offset, &msg->header.channel_id, sizeof(msg->header.channel_id));
+    net16 = htons(msg->header.channel_id);
+    (void)memcpy(buffer + offset, &net16, sizeof(msg->header.channel_id));
     offset += sizeof(msg->header.channel_id);
     // client id
-    (void)memcpy(buffer + offset, &msg->header.client_id, sizeof(msg->header.client_id));
+    net16 = htons(msg->header.client_id);
+    (void)memcpy(buffer + offset, &net16, sizeof(msg->header.client_id));
     offset += sizeof(msg->header.client_id);
     // payload
     (void)memcpy(buffer + offset, msg->data, msg->header.size);
@@ -821,6 +834,7 @@ static void process_client_message(antd_tunnel_msg_t *msg, antd_client_t *client
     bst_node_t *node;
     antd_tunnel_channel_t *channel;
     int hash_val;
+    uint16_t net16;
     // let send it to the correct channel
     switch (msg->header.type)
     {
@@ -890,7 +904,8 @@ static void process_client_message(antd_tunnel_msg_t *msg, antd_client_t *client
                     msg->header.type = CHANNEL_OK;
                     msg->header.channel_id = hash_val;
                     msg->header.size = sizeof(g_tunnel.id_allocator);
-                    (void)memcpy(buff, &g_tunnel.id_allocator, sizeof(g_tunnel.id_allocator));
+                    net16 = htons(g_tunnel.id_allocator);
+                    (void)memcpy(buff, &net16, sizeof(g_tunnel.id_allocator));
                     msg->data = (uint8_t *)buff;
                     if (write_msg_to_client(msg, client) != 0)
                     {
@@ -1147,10 +1162,12 @@ void *handle(void *rq_data)
 
                             // channel id
                             (void)memcpy(&msg.header.channel_id, buffer + offset, sizeof(msg.header.channel_id));
+                            msg.header.channel_id = ntohs(msg.header.channel_id);
                             offset += sizeof(msg.header.channel_id);
 
                             // client id
                             (void)memcpy(&msg.header.client_id, buffer + offset, sizeof(msg.header.client_id));
+                            msg.header.client_id = ntohs(msg.header.client_id);
                             offset += sizeof(msg.header.client_id);
 
                             if (offset > (int)ws_msg_len)

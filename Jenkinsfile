@@ -44,10 +44,7 @@ pipeline{
             DESTDIR=$WORKSPACE/build make install
           '''
         script {
-            // only useful for any master branch
-            //if (env.BRANCH_NAME =~ /^master/) {
             archiveArtifacts artifacts: 'build/', fingerprint: true
-            //}
         }
       }
     }

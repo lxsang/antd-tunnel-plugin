@@ -19,6 +19,7 @@
 #include <fcntl.h>
 #include <sys/time.h>
 #include <netinet/in.h>
+#include <poll.h>
 
 #define MAX_CHANNEL_NAME 64
 #define HOT_LINE_SOCKET "antd_hotline.sock"
@@ -1037,7 +1038,7 @@ void *handle(void *rq_data)
     uint8_t *buffer;
     struct timeval timeout;
     int status;
-    fd_set fd_in;
+    struct pollfd pfd;
     int offset;
     bst_node_t *node = NULL;
     antd_tunnel_key_t *key_p = NULL;
@@ -1099,13 +1100,13 @@ void *handle(void *rq_data)
         // session is valid, continue
         timeout.tv_sec = 0;
         timeout.tv_usec = PROCESS_TIMEOUT;
-        FD_ZERO(&fd_in);
-        FD_SET(client->sock, &fd_in);
-        status = select(client->sock + 1, &fd_in, NULL, NULL, &timeout);
+        pfd.fd = client->sock;
+        pfd.events = POLLIN;
+        status = poll(&pfd, 1, PROCESS_TIMEOUT);
         switch (status)
         {
         case -1:
-            LOG("Error %d on select()\n", errno);
+            ERROR("Error on poll(): %s", strerror(errno));
             pthread_mutex_lock(&g_tunnel.lock);
             bst_for_each(g_tunnel.channels, unsubscribe_notify, argv, 1);
             pthread_mutex_unlock(&g_tunnel.lock);
@@ -1117,6 +1118,15 @@ void *handle(void *rq_data)
             select(0, NULL, NULL, NULL, &timeout);
             break;
         default:
+            if(pfd.revents & (POLLERR | POLLHUP))
+            {
+                ERROR("POLLHUP or POLLERR found");
+                pthread_mutex_lock(&g_tunnel.lock);
+                bst_for_each(g_tunnel.channels, unsubscribe_notify, argv, 1);
+                pthread_mutex_unlock(&g_tunnel.lock);
+                return task;
+                break;
+            }
             pthread_mutex_lock(&g_tunnel.lock);
             h = ws_read_header(rq->client);
             pthread_mutex_unlock(&g_tunnel.lock);

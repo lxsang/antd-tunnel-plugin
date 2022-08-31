@@ -1102,7 +1102,7 @@ void *handle(void *rq_data)
         timeout.tv_usec = PROCESS_TIMEOUT;
         pfd.fd = client->sock;
         pfd.events = POLLIN;
-        status = poll(&pfd, 1, PROCESS_TIMEOUT);
+        status = poll(&pfd, 1, PROCESS_TIMEOUT/ 1000);
         switch (status)
         {
         case -1:

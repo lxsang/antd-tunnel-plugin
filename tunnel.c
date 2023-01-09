@@ -34,7 +34,7 @@
 #define PING_INTERVAL 10u               // 10s
 #define PROCESS_TIMEOUT 30000u          //30 ms
 
-#define MAX_CHANNEL_PATH (sizeof(__plugin__.tmpdir) + strlen(SOCK_DIR_NAME) + strlen(HOT_LINE_SOCKET) + 2)
+#define MAX_CHANNEL_PATH 512
 
 #define MSG_MAGIC_BEGIN (uint16_t)0x414e //AN
 #define MSG_MAGIC_END (uint16_t)0x5444   //TD
@@ -124,7 +124,7 @@ static int mk_socket(const char *name, char *path)
     address.sun_family = AF_UNIX;
     // create the socket
     (void)snprintf(path, MAX_CHANNEL_PATH, "%s/%s/", __plugin__.tmpdir, SOCK_DIR_NAME);
-
+    LOG("Socket path is: %s, name %s", path, name);
     if (!_exist(path))
     {
         LOG("Socket dir does not exist, create it: %s", path);
@@ -543,7 +543,7 @@ static void update_keychain(int listen_fd)
 }
 static void monitor_hotline(int listen_fd)
 {
-    char buff[MAX_CHANNEL_NAME + 1];
+    char buff[MAX_CHANNEL_NAME];
     antd_tunnel_msg_t msg;
     int fd;
     fd = accept(listen_fd, NULL, NULL);
@@ -819,13 +819,13 @@ void destroy()
     if (g_tunnel.hotline != -1)
     {
         (void)close(g_tunnel.hotline);
-        (void)snprintf(path, BUFFLEN, "%s/%s/%s", __plugin__.tmpdir, SOCK_DIR_NAME, HOT_LINE_SOCKET);
+        (void)snprintf(path, MAX_CHANNEL_PATH, "%s/%s/%s", __plugin__.tmpdir, SOCK_DIR_NAME, HOT_LINE_SOCKET);
         (void)unlink(path);
     }
     if (g_tunnel.key_fd != -1)
     {
         (void)close(g_tunnel.key_fd);
-        (void)snprintf(path, BUFFLEN, "%s/%s/%s", __plugin__.tmpdir, SOCK_DIR_NAME, KEY_CHAIN_FIFO);
+        (void)snprintf(path, MAX_CHANNEL_PATH, "%s/%s/%s", __plugin__.tmpdir, SOCK_DIR_NAME, KEY_CHAIN_FIFO);
         (void)unlink(path);
     }
 }

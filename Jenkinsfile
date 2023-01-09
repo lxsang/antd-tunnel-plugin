@@ -9,7 +9,7 @@ def build_plugin()
   aclocal
   autoconf
   automake --add-missing
-  search_path=$(realpath $WORKSPACE/../ant-http/build/$arch/usr)
+  search_path=$(realpath antd/build/$arch/usr)
   CFLAGS="-I$search_path/include" LDFLAGS="-L$search_path/lib" ./configure  --prefix=/opt/www
   CFLAGS="-I$search_path/include" LDFLAGS="-L$search_path/lib" make
   DESTDIR=$WORKSPACE/build/$arch make install
@@ -36,11 +36,16 @@ pipeline{
   }
   stages
   {
+    stage('Prepare dependencies')
+    {
+      steps {
+         copyArtifacts(projectName: 'gitea-sync/ant-http/master', target: 'antd');
+      }
+    }
     stage('Build AMD64') {
       agent {
           docker {
-              image 'xsangle/ci-tools:latest-amd64'
-              args '-v /var/jenkins_home/workspace/ant-http:/var/jenkins_home/workspace/ant-http'
+              image 'xsangle/ci-tools:bionic-amd64'
               // Run the container on the node specified at the
               // top-level of the Pipeline, in the same workspace,
               // rather than on a new node entirely:
@@ -58,8 +63,7 @@ pipeline{
     stage('Build ARM64') {
       agent {
           docker {
-              image 'xsangle/ci-tools:latest-arm64'
-              args '-v /var/jenkins_home/workspace/ant-http:/var/jenkins_home/workspace/ant-http'
+              image 'xsangle/ci-tools:bionic-arm64'
               // Run the container on the node specified at the
               // top-level of the Pipeline, in the same workspace,
               // rather than on a new node entirely:
@@ -77,8 +81,7 @@ pipeline{
     stage('Build ARM') {
       agent {
           docker {
-              image 'xsangle/ci-tools:latest-arm'
-              args '-v /var/jenkins_home/workspace/ant-http:/var/jenkins_home/workspace/ant-http'
+              image 'xsangle/ci-tools:bionic-arm'
               // Run the container on the node specified at the
               // top-level of the Pipeline, in the same workspace,
               // rather than on a new node entirely:

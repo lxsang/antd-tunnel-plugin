@@ -544,7 +544,6 @@ static void update_keychain(antd_tunnel_msg_t *msg)
     (void)memcpy(key_p->hash, msg->data, KEY_LEN);
     (void)memcpy(key_p->user, msg->data + KEY_LEN, msg->header.size - KEY_LEN);
     
-    LOG("User %s key %s", key_p->user, key_p->hash);
     // looking for key in the keychain
     int hash_val = simple_hash(key_p->hash);
     bst_node_t *node = bst_find(g_tunnel.keychain, hash_val);

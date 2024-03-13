@@ -2,22 +2,47 @@ def build_plugin()
 {
   sh '''
   set -e
+  set -x
   cd $WORKSPACE
-  mkdir -p build/$arch/opt/www
-  [ -f Makefile ] && make clean || true
+  mkdir -p build/$arch/
+  [ -f Makefile ] && make clean
+  case $arch in
+    amd64|x86_64)
+        HOST=
+        ;;
+    aarch64|arm64)
+        HOST=--host=aarch64-linux-gnu
+        ;;
+    armv7l|arm)
+        HOST=--host=arm-linux-gnueabihf
+        ;;
+    *)
+        echo "Unkown architecture"
+        exit 1
+        ;;
+  esac
   libtoolize
   aclocal
   autoconf
   automake --add-missing
   search_path=$(realpath antd/build/$arch/usr)
-  CFLAGS="-I$search_path/include" LDFLAGS="-L$search_path/lib" ./configure  --prefix=/opt/www
-  CFLAGS="-I$search_path/include" LDFLAGS="-L$search_path/lib" make
-  DESTDIR=$WORKSPACE/build/$arch make install
+  CFLAGS="-I$search_path/include" \
+    LDFLAGS="-L$search_path/lib" \
+    ./configure $HOST --prefix=/usr
+  CFLAGS="-I$search_path/include" \
+  LDFLAGS="-L$search_path/lib" \
+    DESTDIR=$WORKSPACE/build/$arch \
+    make install
   '''
 }
 
 pipeline{
-  agent { node{ label'master' }}
+  agent {
+    docker {
+      image 'xsangle/ci-tools:latest'
+      reuseNode true
+    }
+  }
   options {
     // Limit build history with buildDiscarder option:
     // daysToKeepStr: history is only kept up to this many days.
@@ -28,7 +53,7 @@ pipeline{
     // Enable timestamps in build log console
     timestamps()
     // Maximum time to run the whole pipeline before canceling it
-    timeout(time: 3, unit: 'HOURS')
+    timeout(time: 1, unit: 'HOURS')
     // Use Jenkins ANSI Color Plugin for log console
     ansiColor('xterm')
     // Limit build concurrency to 1 per branch
@@ -36,23 +61,17 @@ pipeline{
   }
   stages
   {
-    stage('Prepare dependencies')
-    {
+    stage('Prepare') {
       steps {
-         copyArtifacts(projectName: 'gitea-sync/ant-http/master', target: 'antd');
+          copyArtifacts(projectName: 'gitea-sync/ant-http/master', target: 'antd');
+          sh'''
+          make clean || true
+          rm -rf build/* || true
+          mkdir build || true
+          '''
       }
     }
     stage('Build AMD64') {
-      agent {
-          docker {
-              image 'xsangle/ci-tools:bionic-amd64'
-              // Run the container on the node specified at the
-              // top-level of the Pipeline, in the same workspace,
-              // rather than on a new node entirely:
-              reuseNode true
-              registryUrl 'http://workstation:5000/'
-          }
-      }
       steps {
         script{
           env.arch = "amd64"
@@ -61,16 +80,6 @@ pipeline{
       }
     }
     stage('Build ARM64') {
-      agent {
-          docker {
-              image 'xsangle/ci-tools:bionic-arm64'
-              // Run the container on the node specified at the
-              // top-level of the Pipeline, in the same workspace,
-              // rather than on a new node entirely:
-              reuseNode true
-              registryUrl 'http://workstation:5000/'
-          }
-      }
       steps {
         script{
           env.arch = "arm64"
@@ -79,16 +88,6 @@ pipeline{
       }
     }
     stage('Build ARM') {
-      agent {
-          docker {
-              image 'xsangle/ci-tools:bionic-arm'
-              // Run the container on the node specified at the
-              // top-level of the Pipeline, in the same workspace,
-              // rather than on a new node entirely:
-              reuseNode true
-              registryUrl 'http://workstation:5000/'
-          }
-      }
       steps {
         script{
           env.arch = "arm"
@@ -96,10 +95,10 @@ pipeline{
         build_plugin()
       }
     }
-    stage('Archive') {
-      steps {
+    stage("Archive") {
+      steps{
         script {
-            archiveArtifacts artifacts: 'build/', fingerprint: true
+            archiveArtifacts artifacts: 'build/', fingerprint: true, onlyIfSuccessful: true
         }
       }
     }

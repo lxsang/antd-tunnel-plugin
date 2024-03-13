@@ -1,5 +1,5 @@
 # initialise autoconf and set up some basic information about the program we’re packaging
-AC_INIT([tunnel], [0.1.3b], [xsang.le@gmail.com])
+AC_INIT([tunnel], [0.2.0], [xsang.le@gmail.com])
 
 # We’re going to use automake for this project
 # [subdir-objects] if needed
